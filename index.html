@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Protein">
+<meta name="theme-color" content="#58cc02">
+<title>Protein</title>
+<style>
+  :root{--green:#58cc02;--green-d:#46a302;--blue:#1cb0f6;--blue-d:#1899d6;--red:#ff4b4b;--red-d:#ea2b2b;--gray:#e5e5e5;--text:#3c3c3c;--muted:#777}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:"Nunito","Trebuchet MS",system-ui,sans-serif;color:var(--text);background:#fff;padding:env(safe-area-inset-top) 16px 40px}
+  h1{font-size:22px;margin:16px 0 4px;text-align:center}
+  .card{border:2px solid var(--gray);border-radius:18px;padding:14px;margin:14px 0}
+  .ring-wrap{display:flex;flex-direction:column;align-items:center}
+  .ring-text{font-size:30px;font-weight:800}
+  .sub{color:var(--muted);font-weight:700;font-size:14px}
+  .btn{border:0;border-radius:14px;font-weight:800;font-size:16px;color:#fff;background:var(--green);box-shadow:0 4px 0 var(--green-d);padding:10px 16px;cursor:pointer}
+  .btn:active{transform:translateY(3px);box-shadow:0 1px 0 var(--green-d)}
+  .btn.blue{background:var(--blue);box-shadow:0 4px 0 var(--blue-d)}
+  .btn.red{background:var(--red);box-shadow:0 4px 0 var(--red-d)}
+  .btn.round{width:44px;height:44px;padding:0;font-size:24px;line-height:1}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:2px solid #f0f0f0}
+  .row:last-child{border-bottom:0}
+  .name{font-weight:800}
+  .ctrl{display:flex;align-items:center;gap:8px}
+  .qty{min-width:28px;text-align:center;font-weight:800;font-size:18px}
+  input,select{font:inherit;font-weight:700;border:2px solid var(--gray);border-radius:12px;padding:10px;width:100%;background:#f7f7f7}
+  input.small{width:80px}
+  label{display:block;font-weight:800;font-size:13px;color:var(--muted);margin:10px 0 4px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .link{background:none;border:0;color:var(--blue);font-weight:800;font-size:14px;cursor:pointer;padding:6px}
+  .del{display:none}
+  .editing .del{display:inline-block}
+  svg text{font-family:inherit}
+</style>
+</head>
+<body>
+<h1>🥚 Protein</h1>
+
+<div class="card ring-wrap">
+  <svg id="ring" width="170" height="170" viewBox="0 0 170 170"></svg>
+  <div class="sub" id="ringSub"></div>
+</div>
+
+<div class="card">
+  <div style="font-weight:800;margin-bottom:6px">This week</div>
+  <svg id="chart" viewBox="0 0 340 230" width="100%"></svg>
+</div>
+
+<div class="card" id="foodCard">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <div style="font-weight:800">Today's food</div>
+    <button class="link" id="editBtn">Edit list</button>
+  </div>
+  <div id="foods"></div>
+</div>
+
+<div class="card">
+  <div style="font-weight:800">Add a food</div>
+  <label>Name</label><input id="nName" placeholder="e.g. Greek yogurt">
+  <div class="grid">
+    <div><label>Counted by</label>
+      <select id="nType"><option value="unit">Each (+ / −)</option><option value="g">Grams</option></select></div>
+    <div><label id="nPLabel">Protein per item (g)</label><input id="nProt" type="number" inputmode="decimal" placeholder="6"></div>
+  </div>
+  <div style="margin-top:12px"><button class="btn blue" id="addFood">Add food</button></div>
+</div>
+
+<div class="card">
+  <div style="font-weight:800">Goals and alerts</div>
+  <div class="grid">
+    <div><label>Daily goal (g)</label><input id="sGoal" type="number" inputmode="numeric"></div>
+    <div><label>Alert if below (g)</label><input id="sThr" type="number" inputmode="numeric"></div>
+  </div>
+  <label>ntfy topic (make it long and random)</label><input id="sTopic" placeholder="protein-x8k2m9qz-jash">
+  <label>Worker URL</label><input id="sWorker" placeholder="https://protein.yourname.workers.dev">
+  <div style="margin-top:12px"><button class="btn" id="saveSet">Save</button></div>
+</div>
+
+<script>
+const KEY='proteinApp.v1';
+const DEFAULTS={
+  foods:[
+    {id:'egg',name:'Egg',type:'unit',protein:6},
+    {id:'tofu',name:'Tofu',type:'g',protein:8},
+    {id:'chicken',name:'Chicken breast',type:'g',protein:31},
+    {id:'paneer',name:'Paneer',type:'g',protein:18},
+    {id:'dal',name:'Cooked dal',type:'g',protein:9},
+    {id:'whey',name:'Whey scoop',type:'unit',protein:24}
+  ],
+  log:{},
+  settings:{goal:120,threshold:80,topic:'',worker:''}
+};
+let S=JSON.parse(localStorage.getItem(KEY)||'null')||DEFAULTS;
+let editing=false;
+const $=s=>document.querySelector(s);
+
+function dstr(d){const z=new Date(d.getTime()-d.getTimezoneOffset()*60000);return z.toISOString().slice(0,10)}
+const today=()=>dstr(new Date());
+const r1=n=>Math.round(n*10)/10;
+
+function dayTotal(date){
+  const l=S.log[date]||{};let t=0;
+  for(const f of S.foods){const q=l[f.id]||0;t+=f.type==='unit'?q*f.protein:q/100*f.protein}
+  return r1(t);
+}
+function weekDates(){
+  const d=new Date();const off=(d.getDay()+6)%7; // Monday start
+  return [...Array(7)].map((_,i)=>{const x=new Date(d);x.setDate(d.getDate()-off+i);return dstr(x)});
+}
+function save(){localStorage.setItem(KEY,JSON.stringify(S));sync();render()}
+function sync(){
+  const {worker,topic,threshold,goal}=S.settings;
+  if(!worker||!topic)return;
+  fetch(worker,{method:'POST',headers:{'Content-Type':'text/plain'},
+    body:JSON.stringify({topic,date:today(),total:dayTotal(today()),threshold,goal})}).catch(()=>{});
+}
+function setQty(id,val){
+  const t=today();S.log[t]=S.log[t]||{};S.log[t][id]=Math.max(0,r1(val));save();
+}
+
+function renderRing(){
+  const total=dayTotal(today()),goal=S.settings.goal||1,pct=Math.min(total/goal,1);
+  const R=70,C=2*Math.PI*R;
+  $('#ring').innerHTML=`
+    <circle cx="85" cy="85" r="${R}" fill="none" stroke="#e5e5e5" stroke-width="16"/>
+    <circle cx="85" cy="85" r="${R}" fill="none" stroke="${pct>=1?'#ffc800':'#58cc02'}" stroke-width="16" stroke-linecap="round"
+      stroke-dasharray="${C}" stroke-dashoffset="${C*(1-pct)}" transform="rotate(-90 85 85)"/>
+    <text x="85" y="88" text-anchor="middle" font-size="32" font-weight="800" fill="#3c3c3c">${total}</text>
+    <text x="85" y="110" text-anchor="middle" font-size="14" font-weight="700" fill="#777">of ${goal} g</text>`;
+  const left=r1(goal-total);
+  $('#ringSub').textContent=left>0?`${left} g to go`:'Goal reached! 🎉';
+}
+
+function renderChart(){
+  const dates=weekDates(),t=today();
+  const vals=dates.map(d=>d<=t?dayTotal(d):null);
+  const goal=S.settings.goal||0;
+  const max=Math.max(goal,...vals.filter(v=>v!==null),10)*1.15;
+  const W=340,H=230,L=44,B=34,T=14,Rm=8,ph=H-B-T,pw=W-L-Rm,bw=pw/7;
+  const y=v=>T+ph-(v/max)*ph;
+  let s='';
+  [0,.5,1].forEach(f=>{const v=Math.round(max*f);
+    s+=`<line x1="${L}" x2="${W-Rm}" y1="${y(v)}" y2="${y(v)}" stroke="#eee"/>
+        <text x="${L-6}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="#777">${v}</text>`});
+  s+=`<text transform="translate(11 ${T+ph/2}) rotate(-90)" text-anchor="middle" font-size="11" font-weight="700" fill="#777">Protein (g)</text>`;
+  dates.forEach((d,i)=>{
+    const x=L+i*bw+bw*.15,w=bw*.7,v=vals[i],isT=d===t;
+    if(v!==null){
+      const h=Math.max((v/max)*ph,v>0?2:0);
+      s+=`<rect x="${x}" y="${T+ph-h}" width="${w}" height="${h}" rx="6" fill="${v>=goal?'#ffc800':(isT?'#1cb0f6':'#58cc02')}"/>
+          <text x="${x+w/2}" y="${T+ph-h-4}" text-anchor="middle" font-size="11" font-weight="800" fill="#3c3c3c">${Math.round(v)}</text>`;
+    }
+    s+=`<text x="${x+w/2}" y="${H-12}" text-anchor="middle" font-size="11" font-weight="${isT?800:700}" fill="${isT?'#1cb0f6':'#777'}">Day ${i+1}</text>`;
+  });
+  if(goal){s+=`<line x1="${L}" x2="${W-Rm}" y1="${y(goal)}" y2="${y(goal)}" stroke="#ff4b4b" stroke-dasharray="5 4" stroke-width="2"/>`}
+  $('#chart').innerHTML=s;
+}
+
+function renderFoods(){
+  const l=S.log[today()]||{};
+  $('#foodCard').classList.toggle('editing',editing);
+  $('#foods').innerHTML=S.foods.map(f=>{
+    const q=l[f.id]||0;
+    const info=f.type==='unit'?`${f.protein} g each`:`${f.protein} g per 100 g`;
+    const ctrl=f.type==='unit'
+      ?`<button class="btn red round" data-dec="${f.id}">−</button><span class="qty">${q}</span><button class="btn round" data-inc="${f.id}">+</button>`
+      :`<span class="qty" style="min-width:48px">${q?q+' g':''}</span>
+        <input class="small" type="number" inputmode="decimal" placeholder="g" id="g_${f.id}">
+        <button class="btn round" data-addg="${f.id}">+</button>
+        ${q?`<button class="link" data-clr="${f.id}">clear</button>`:''}`;
+    return `<div class="row"><div><div class="name">${f.name}</div><div class="sub">${info}</div></div>
+      <div class="ctrl">${ctrl}<button class="link del" data-del="${f.id}">🗑</button></div></div>`;
+  }).join('');
+}
+
+function render(){renderRing();renderChart();renderFoods()}
+
+document.addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  const l=S.log[today()]||{};
+  if(b.dataset.inc)setQty(b.dataset.inc,(l[b.dataset.inc]||0)+1);
+  if(b.dataset.dec)setQty(b.dataset.dec,(l[b.dataset.dec]||0)-1);
+  if(b.dataset.addg){const v=parseFloat($('#g_'+b.dataset.addg).value);if(v>0)setQty(b.dataset.addg,(l[b.dataset.addg]||0)+v)}
+  if(b.dataset.clr)setQty(b.dataset.clr,0);
+  if(b.dataset.del&&confirm('Delete this food?')){S.foods=S.foods.filter(f=>f.id!==b.dataset.del);save()}
+});
+$('#editBtn').onclick=()=>{editing=!editing;$('#editBtn').textContent=editing?'Done':'Edit list';renderFoods()};
+$('#nType').onchange=e=>{$('#nPLabel').textContent=e.target.value==='unit'?'Protein per item (g)':'Protein per 100 g'};
+$('#addFood').onclick=()=>{
+  const name=$('#nName').value.trim(),p=parseFloat($('#nProt').value);
+  if(!name||!(p>=0))return alert('Enter a name and protein amount');
+  S.foods.push({id:'f'+Date.now(),name,type:$('#nType').value,protein:p});
+  $('#nName').value='';$('#nProt').value='';save();
+};
+function loadSettings(){
+  $('#sGoal').value=S.settings.goal;$('#sThr').value=S.settings.threshold;
+  $('#sTopic').value=S.settings.topic;$('#sWorker').value=S.settings.worker;
+}
+$('#saveSet').onclick=()=>{
+  S.settings={goal:parseFloat($('#sGoal').value)||120,threshold:parseFloat($('#sThr').value)||0,
+    topic:$('#sTopic').value.trim(),worker:$('#sWorker').value.trim().replace(/\/$/,'')};
+  save();alert('Saved');
+};
+
+// home-screen icon (generated, so no image file needed)
+(function(){
+  const c=document.createElement('canvas');c.width=c.height=180;const x=c.getContext('2d');
+  x.fillStyle='#58cc02';x.fillRect(0,0,180,180);x.font='110px serif';x.textAlign='center';x.textBaseline='middle';
+  x.fillText('🥚',90,98);
+  const l=document.createElement('link');l.rel='apple-touch-icon';l.href=c.toDataURL('image/png');document.head.appendChild(l);
+})();
+
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){render();sync()}});
+loadSettings();render();sync();
+</script>
+</body>
+</html>
